@@ -2,7 +2,14 @@ const path = require('path');
 const http = require('http');
 const express = require('express');
 const socketio = require('socket.io');
-const { Socket } = require('dgram');
+const formatMessage = require('./utils/messages');
+const {
+    userJoin,
+    getCurrentUser,
+    userLeave,
+    getRoomUsers
+} = require('./utils/users');
+const { Console } = require('console');
 
 const app = express();
 const server = http.createServer(app);
@@ -15,22 +22,56 @@ const io = socketio(server);
 // STATIC FOLDER
 app.use(express.static(path.join(__dirname, 'public')));
 
+const botName = 'Bot';
+
 // CLIENT CONNECTION
 io.on('connection', socket => {
-    // GREET THE NEW USER
-    socket.emit('message', 'Welcome aboard');
+    socket.on('joinRoom', ({username, room}) => {
+        // ADD USER TO ROOM
+        const user = userJoin(socket.id, username, room);
 
-    // BROADCAST USER CONNECTION
-    socket.broadcast.emit('message', 'A user has joined the chat');
+        socket.join(user.room);
+
+        // GREET THE NEW USER
+        socket.emit('message', formatMessage(botName, 'Welcome aboard'));
+
+        // BROADCAST USER CONNECTION
+        socket
+            .to(user.room)
+            .emit(
+                'message',
+                formatMessage(botName, `${user.username} has joined the chat`)
+            );
+
+        const aaa = user.room;
+
+        // SEND ROOM USERS
+        io.emit(
+                'roomUsers',
+                {room: user.room, users: getRoomUsers(user.room)}
+            );
+    });
 
     // CLIENT DISCONNECTION
     socket.on('disconnect', () => {
-        io.emit('message', 'A user has left the chat');
+        const user = userLeave(socket.id);
+
+        if (user) {
+            io.emit('message', formatMessage(botName, `${user.username} has left the chat`));
+
+            // SEND ROOM USERS
+            io.emit(
+                'roomUsers',
+                {room: user.room, users: getRoomUsers(user.room)}
+            );
+        }
+
     });
 
     // LISTEN FOR chatMessage
     socket.on('chatMessage', msg => {
-        io.emit('message', msg);
+        const user = getCurrentUser(socket.id);
+        io.emit('message', formatMessage(user.username, msg));
     });
 
 });
